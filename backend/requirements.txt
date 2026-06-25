@@ -1,0 +1,14 @@
+langchain~=0.3
+langchain-anthropic
+langchain-community
+langgraph~=0.2
+anthropic
+tavily-python
+praw
+app-store-web-scraper
+requests
+chromadb
+pydantic~=2.0
+fastapi
+uvicorn
+python-dotenv
