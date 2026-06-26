@@ -4,8 +4,8 @@ langchain-community
 langgraph~=0.2
 anthropic
 tavily-python
-praw
 app-store-web-scraper
+google-play-scraper
 requests
 chromadb
 pydantic~=2.0

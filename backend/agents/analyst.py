@@ -63,11 +63,22 @@ class _MarketSummary(BaseModel):
 
 
 def _gather_documents(state: MarketMapState) -> list[str]:
-    """Flatten all of Scout's raw text into a single document list."""
+    """Flatten all of Scout's raw text into a single document list.
+
+    Every Scout text channel must be concatenated here — this is the only
+    place data enters the RAG index, so a field left out of this list is
+    invisible to every downstream query and to the final brief.
+    """
     scout = state.get("scout_data")
     if scout is None:
         return []
-    raw = scout.web_results + scout.reddit_posts + scout.app_reviews
+    raw = (
+        scout.web_results
+        + scout.app_reviews
+        + scout.play_reviews
+        + scout.hn_posts
+        + scout.producthunt_posts
+    )
     return [text for text in raw if text and text.strip()]
 
 
@@ -142,6 +153,29 @@ def _grounded(llm, schema, instruction: str, chunks: list[str]):
     return llm.with_structured_output(schema).invoke(prompt)
 
 
+def _competitor_query_and_instruction(idea: str, scraped_app_names: list[str]) -> tuple[str, str]:
+    """Build the retrieval query and grounding instruction for competitor
+    extraction, anchored on the apps Scout actually scraped reviews for.
+
+    Those apps are the real competitors — naming them in both the query and the
+    instruction pulls their review chunks to the top and stops the model from
+    free-associating to generic tools (Trello, Notion, ...)."""
+    if scraped_app_names:
+        names = ", ".join(scraped_app_names)
+        query = f"reviews, strengths and weaknesses of these apps: {names}"
+        instruction = (
+            f"These apps were scraped for reviews and are the primary competitors "
+            f"for '{idea}': {names}. Produce one competitor entry per app, grounding "
+            f"its strengths, weaknesses and positioning in the review excerpts below. "
+            f"Add another product only if the excerpts clearly describe it as a "
+            f"competing app — do not list generic tools that merely appear in passing."
+        )
+    else:
+        query = f"competitor products, alternatives and existing apps for {idea}"
+        instruction = f"Identify the competitor products and alternatives relevant to '{idea}'."
+    return query, instruction
+
+
 # --------------------------------------------------------------------------- #
 # Node
 # --------------------------------------------------------------------------- #
@@ -173,14 +207,12 @@ def run_analyst(state: MarketMapState) -> dict:
         pain_chunks,
     ).items
 
-    # Query 2 — competitors
-    comp_chunks = _retrieve(collection, f"competitor products, alternatives and existing apps for {idea}")
-    competitors = _grounded(
-        llm,
-        _Competitors,
-        f"Identify the competitor products and alternatives relevant to '{idea}'.",
-        comp_chunks,
-    ).items
+    # Query 2 — competitors (anchored on the apps Scout actually scraped)
+    scout = state.get("scout_data")
+    scraped_app_names = scout.scraped_app_names if scout else []
+    comp_query, comp_instruction = _competitor_query_and_instruction(idea, scraped_app_names)
+    comp_chunks = _retrieve(collection, comp_query)
+    competitors = _grounded(llm, _Competitors, comp_instruction, comp_chunks).items
 
     # Query 3 — market summary
     summary_chunks = _retrieve(collection, f"{idea} market overview, trends and landscape")

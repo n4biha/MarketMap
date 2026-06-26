@@ -117,17 +117,34 @@ class ScoutData(BaseModel):
     web_results: list[str] = Field(
         default_factory=list, description="Raw text snippets from Tavily web search."
     )
-    reddit_posts: list[str] = Field(
-        default_factory=list,
-        description="Raw Reddit post/comment text (may be empty if Reddit was "
-        "unavailable — Scout degrades gracefully).",
-    )
     app_reviews: list[str] = Field(
         default_factory=list, description="Raw App Store review text."
     )
+    play_reviews: list[str] = Field(
+        default_factory=list,
+        description="Raw Google Play review text (may be empty if Play scraping "
+        "was unavailable — Scout degrades gracefully).",
+    )
+    hn_posts: list[str] = Field(
+        default_factory=list,
+        description="Raw Hacker News story titles and top comments from the "
+        "Algolia HN Search API.",
+    )
+    producthunt_posts: list[str] = Field(
+        default_factory=list,
+        description="Raw Product Hunt product names, taglines, descriptions and "
+        "upvote counts (may be empty if no token / API unavailable).",
+    )
     competitor_names: list[str] = Field(
         default_factory=list,
-        description="Candidate competitor names surfaced during collection.",
+        description="Candidate competitor names surfaced during collection, "
+        "review-backed app names first (highest signal).",
+    )
+    scraped_app_names: list[str] = Field(
+        default_factory=list,
+        description="Names of the apps Scout actually pulled App Store / Google "
+        "Play reviews for — the highest-signal competitors, used to ground the "
+        "Analyst's competitor extraction.",
     )
     source_count: int = Field(
         default=0,
