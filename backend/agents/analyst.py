@@ -57,6 +57,14 @@ class _MarketSummary(BaseModel):
     summary: str = Field(default="", description="Grounded market landscape summary.")
 
 
+class _KeptCompetitors(BaseModel):
+    names: list[str] = Field(
+        default_factory=list,
+        description="Names of the competitors that are plausibly in the same "
+        "market space as the idea. Copy each kept name exactly as given.",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # RAG building blocks
 # --------------------------------------------------------------------------- #
@@ -140,16 +148,39 @@ def _llm():
     return ChatAnthropic(model=MODEL, max_tokens=MAX_TOKENS)
 
 
-def _grounded(llm, schema, instruction: str, chunks: list[str]):
-    """One schema-constrained Claude call, grounded only in `chunks`."""
+def _grounded(
+    llm,
+    schema,
+    instruction: str,
+    chunks: list[str],
+    anchor_names: list[str] | None = None,
+):
+    """One schema-constrained Claude call, grounded in `chunks`.
+
+    If `anchor_names` is provided, the grounding rule is relaxed: the model must
+    produce an entry for any anchor that appears anywhere in the chunks (even
+    briefly), using whatever evidence exists — instead of returning empty just
+    because no single chunk is a clean match. Without anchors, the strict
+    "use ONLY the excerpts" rule applies (pain points / market summary unchanged).
+    """
     context = "\n\n---\n\n".join(chunks) if chunks else "(no relevant excerpts found)"
-    prompt = (
-        f"{instruction}\n\n"
-        "Use ONLY the research excerpts below. Do not invent anything that is "
-        "not supported by them. If the excerpts contain nothing relevant, "
-        "return an empty result.\n\n"
-        f"Research excerpts:\n{context}"
-    )
+    if anchor_names:
+        names = ", ".join(anchor_names)
+        rule = (
+            "Use the research excerpts below as evidence. These items were "
+            f"confirmed to exist and are in scope: {names}. If one of them "
+            "appears in ANY excerpt — even briefly or in passing — produce an "
+            "entry for it using whatever evidence is available. Only omit an "
+            "item if there is zero evidence for it across all excerpts. Do not "
+            "invent items that are not in the excerpts or this list."
+        )
+    else:
+        rule = (
+            "Use ONLY the research excerpts below. Do not invent anything that is "
+            "not supported by them. If the excerpts contain nothing relevant, "
+            "return an empty result."
+        )
+    prompt = f"{instruction}\n\n{rule}\n\nResearch excerpts:\n{context}"
     return llm.with_structured_output(schema).invoke(prompt)
 
 
@@ -174,6 +205,41 @@ def _competitor_query_and_instruction(idea: str, scraped_app_names: list[str]) -
         query = f"competitor products, alternatives and existing apps for {idea}"
         instruction = f"Identify the competitor products and alternatives relevant to '{idea}'."
     return query, instruction
+
+
+def _relevant_competitors(
+    idea: str, competitors: list[CompetitorInsight]
+) -> list[CompetitorInsight]:
+    """Use Claude to filter out genuinely off-topic competitors."""
+    if not competitors:
+        return competitors
+
+    listing = "\n".join(
+        f"- {c.name}: {c.positioning}" if c.positioning else f"- {c.name}"
+        for c in competitors
+    )
+    prompt = (
+        f"App idea: {idea}\n\n"
+        f"Candidate competitors:\n{listing}\n\n"
+        "Return only the ones that are plausibly in the same market space as the "
+        "idea — products someone researching this idea would actually compare "
+        "against. Drop anything clearly off-topic. For example, for 'a budget app "
+        "for college students', PocketGuard, Mint, and YNAB are relevant; VERO, "
+        "Genspark, and Cilantro are not. Copy kept names exactly."
+    )
+
+    try:
+        kept_names = _llm().with_structured_output(_KeptCompetitors).invoke(prompt).names
+    except Exception as exc:  # noqa: BLE001 — never block the pipeline on this
+        logger.warning("Competitor relevance check failed, keeping all: %s", exc)
+        return competitors
+
+    if not kept_names:
+        return competitors
+
+    keep = {n.strip().lower() for n in kept_names}
+    filtered = [c for c in competitors if c.name.strip().lower() in keep]
+    return filtered or competitors
 
 
 # --------------------------------------------------------------------------- #
@@ -212,7 +278,10 @@ def run_analyst(state: MarketMapState) -> dict:
     scraped_app_names = scout.scraped_app_names if scout else []
     comp_query, comp_instruction = _competitor_query_and_instruction(idea, scraped_app_names)
     comp_chunks = _retrieve(collection, comp_query)
-    competitors = _grounded(llm, _Competitors, comp_instruction, comp_chunks).items
+    competitors = _grounded(
+        llm, _Competitors, comp_instruction, comp_chunks, anchor_names=scraped_app_names
+    ).items
+    competitors = _relevant_competitors(idea, competitors)
 
     # Query 3 — market summary
     summary_chunks = _retrieve(collection, f"{idea} market overview, trends and landscape")

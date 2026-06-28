@@ -7,6 +7,7 @@ POST /research takes an app idea and returns the final MarketBrief as JSON.
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from pipeline import run_pipeline
@@ -16,6 +17,14 @@ app = FastAPI(
     title="MarketMap",
     description="AI market-research agent: 4 agents turn an app idea into an opportunity brief.",
     version="0.1.0",
+)
+
+# Allow the Next.js dev frontend to call the API from the browser.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

@@ -151,3 +151,9 @@ venv/
 
 # Chroma vector store
 backend/chroma_db/
+
+# create-next-app agent docs — do not commit
+frontend/AGENTS.md
+frontend/CLAUDE.md
+AGENTS.md
+CLAUDE.md

@@ -35,18 +35,16 @@ PLAY_REVIEWS_PER_APP = 20
 HN_STORIES = 5
 HN_COMMENTS_PER_STORY = 3
 PH_LIMIT = 5
+PH_TOPIC_FETCH = 20  # fetch a wider in-topic pool, then strict-filter down to PH_LIMIT
 
-# Only scrape reviews for apps in plausibly-relevant store categories, and only
-# when the resolved app name reasonably matches the term we looked it up with.
-ALLOWED_CATEGORIES = {
-    "Productivity", "Health & Fitness", "Medical", "Lifestyle", "Education",
-}
+# Only scrape reviews for an app when the resolved app name reasonably matches
+# the term we looked it up with.
 NAME_MATCH_THRESHOLD = 0.5
 
 PH_ENDPOINT = "https://api.producthunt.com/v2/api/graphql"
 PH_QUERY = """
-query MarketMapSearch($n: Int!) {
-  posts(order: VOTES, first: $n) {
+query MarketMapSearch($topic: String!, $n: Int!) {
+  posts(topic: $topic, order: VOTES, first: $n) {
     edges {
       node {
         name
@@ -58,6 +56,26 @@ query MarketMapSearch($n: Int!) {
   }
 }
 """
+
+# Map idea keywords to the closest Product Hunt topic slug. First group with a
+# keyword present in the idea wins; otherwise fall back to PH_DEFAULT_TOPIC.
+PH_DEFAULT_TOPIC = "productivity"
+PH_TOPIC_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("productivity", ("habit", "tracker", "track", "task", "todo", "to-do",
+                      "focus", "routine", "planner", "notes", "calendar",
+                      "productivity", "organize", "time")),
+    ("health-fitness", ("health", "fitness", "adhd", "mental", "wellness",
+                        "meditation", "sleep", "anxiety", "therapy", "mood",
+                        "workout", "diet", "fasting")),
+    ("fintech", ("finance", "money", "budget", "invest", "crypto", "banking",
+                 "payments", "fintech")),
+    ("education", ("education", "learn", "learning", "study", "course",
+                   "students", "teaching")),
+    ("design-tools", ("design", "ux", "ui", "figma", "prototype")),
+    ("developer-tools", ("developer", "code", "coding", "api", "devops",
+                         "database", "framework")),
+    ("marketing", ("marketing", "seo", "email", "newsletter", "ads", "social")),
+]
 
 
 def _collect_web(idea: str) -> tuple[list[str], list[str]]:
@@ -125,10 +143,9 @@ def _lookup_app(name: str) -> tuple[int, str] | None:
     """Resolve an app name to its (App Store id, canonical name) via Apple's
     free iTunes Search API (no key required).
 
-    Returns None when nothing matches, when the app's primaryGenreName is
-    outside ALLOWED_CATEGORIES, or when the canonical name isn't a reasonable
-    match for the search term — so a loose query can't pull in an unrelated
-    app."""
+    Returns None when nothing matches, or when the canonical name isn't a
+    reasonable match for the search term — so a loose query can't pull in an
+    unrelated app."""
     import requests
 
     resp = requests.get(
@@ -145,10 +162,6 @@ def _lookup_app(name: str) -> tuple[int, str] | None:
     if not track_id:
         return None
     track_name = (top.get("trackName") or name).strip()
-    genre = top.get("primaryGenreName")
-    if genre not in ALLOWED_CATEGORIES:
-        logger.info("Skipping %r — App Store category %r not in allowed set", track_name, genre)
-        return None
     if not _name_matches(name, track_name):
         logger.info("Skipping %r — weak name match for search term %r", track_name, name)
         return None
@@ -237,10 +250,6 @@ def _collect_play_reviews(idea: str) -> tuple[list[str], list[str]]:
     for app in apps[:PLAY_APPS_TO_SCRAPE]:
         app_id = app.get("appId")
         if not app_id:
-            continue
-        genre = app.get("genre")
-        if genre not in ALLOWED_CATEGORIES:
-            logger.info("Skipping Play app %r — category %r not in allowed set", app.get("title"), genre)
             continue
         try:
             result, _ = reviews(
@@ -336,15 +345,27 @@ def _collect_hn(idea: str) -> list[str]:
     return posts
 
 
+def _ph_topic_for(idea: str) -> str:
+    """Pick the closest Product Hunt topic slug for an idea, defaulting to
+    productivity. Used to scope the PH query to relevant posts instead of
+    globally top-voted ones."""
+    words = {w.lower().strip(".,!?") for w in idea.split()}
+    for slug, keywords in PH_TOPIC_KEYWORDS:
+        if words & set(keywords):
+            return slug
+    return PH_DEFAULT_TOPIC
+
+
 def _collect_producthunt(idea: str) -> tuple[list[str], list[str]]:
     """Query the Product Hunt GraphQL API (bearer token in PRODUCTHUNT_TOKEN),
     primarily for competitor discovery.
 
-    The v2 API has no free-text post search, so we pull the top-voted posts and
-    keep those whose name/tagline/description mentions the idea's keywords
-    (falling back to all fetched posts if none match). Returns
-    ``(producthunt_posts, discovered_names)`` — the caller appends the names to
-    competitor_names. Degrades gracefully to ([], [])."""
+    Scoped to the idea's closest PH topic (the v2 API has no free-text post
+    search), then strictly keyword-filtered: a post is kept only if its
+    name/tagline/description shares a meaningful keyword with the idea. There is
+    NO 'keep all' fallback — a thin-but-relevant result beats five globally
+    popular but unrelated ones. Returns ``(producthunt_posts, discovered_names)``
+    — the caller appends the names to competitor_names. Degrades to ([], [])."""
     posts: list[str] = []
     names: list[str] = []
 
@@ -353,12 +374,13 @@ def _collect_producthunt(idea: str) -> tuple[list[str], list[str]]:
         logger.warning("PRODUCTHUNT_TOKEN not set, skipping Product Hunt")
         return posts, names
 
+    topic = _ph_topic_for(idea)
     try:
         import requests
 
         resp = requests.post(
             PH_ENDPOINT,
-            json={"query": PH_QUERY, "variables": {"n": PH_LIMIT}},
+            json={"query": PH_QUERY, "variables": {"topic": topic, "n": PH_TOPIC_FETCH}},
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
@@ -370,19 +392,20 @@ def _collect_producthunt(idea: str) -> tuple[list[str], list[str]]:
         logger.warning("Product Hunt query failed, continuing without PH data: %s", exc)
         return posts, names
 
-    keywords = [w.lower() for w in idea.split() if len(w) > 3]
+    keywords = [w.lower().strip(".,!?") for w in idea.split() if len(w) > 3]
     matched: list[dict] = []
     for edge in edges:
         node = edge.get("node") or {}
         haystack = " ".join(
             str(node.get(k) or "") for k in ("name", "tagline", "description")
         ).lower()
-        if not keywords or any(kw in haystack for kw in keywords):
+        if keywords and any(kw in haystack for kw in keywords):
             matched.append(node)
-    if not matched:
-        matched = [edge.get("node") or {} for edge in edges]
 
-    for node in matched:
+    if not matched:
+        logger.info("Product Hunt: no topic-%r posts matched idea keywords; skipping", topic)
+
+    for node in matched[:PH_LIMIT]:
         name = (node.get("name") or "").strip()
         tagline = (node.get("tagline") or "").strip()
         description = (node.get("description") or "").strip()
