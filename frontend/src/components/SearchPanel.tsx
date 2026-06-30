@@ -14,7 +14,7 @@ const POPULAR_SEARCHES = [
 /**
  * Screen 1 search box: wide rounded input with a left icon and a purple
  * circular submit, plus "popular searches" pills that fill the input. Submitting
- * just logs the idea for now — no navigation yet.
+ * navigates to the research screen (/research?idea=...) with the entered idea.
  */
 export function SearchPanel() {
   const router = useRouter();

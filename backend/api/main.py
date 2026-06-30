@@ -1,7 +1,10 @@
 """FastAPI app exposing the MarketMap pipeline.
 
-POST /research takes an app idea and returns the final MarketBrief as JSON.
-(SSE streaming of agent status is a later milestone — Day 4 — not built here.)
+Endpoints:
+  GET  /health           liveness check.
+  POST /research         takes an app idea and returns the final MarketBrief as JSON.
+  GET  /research/stream  runs the pipeline and streams agent status over SSE,
+                         ending with the final MarketBrief.
 """
 
 from __future__ import annotations
