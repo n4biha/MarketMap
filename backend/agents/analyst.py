@@ -37,6 +37,14 @@ CHUNK_OVERLAP = 100
 RETRIEVAL_K = 6
 MAX_TOKENS = 2000
 
+# Light touch on wording only: prefer plain words, keep every bit of substance.
+PLAIN_LANGUAGE = (
+    "Wording: use clear, everyday words instead of fancy, technical, or buzzword "
+    "language. Keep ALL of the detail, specifics, names, and substance — do not "
+    "shorten, summarize away, or drop anything. Only simplify the vocabulary, not "
+    "the content."
+)
+
 
 # --------------------------------------------------------------------------- #
 # Private wrapper schemas — internal to the Analyst.
@@ -180,7 +188,7 @@ def _grounded(
             "not supported by them. If the excerpts contain nothing relevant, "
             "return an empty result."
         )
-    prompt = f"{instruction}\n\n{rule}\n\nResearch excerpts:\n{context}"
+    prompt = f"{instruction}\n\n{rule}\n\n{PLAIN_LANGUAGE}\n\nResearch excerpts:\n{context}"
     return llm.with_structured_output(schema).invoke(prompt)
 
 

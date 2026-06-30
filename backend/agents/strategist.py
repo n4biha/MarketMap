@@ -47,6 +47,11 @@ Also: identify concrete market gaps a new entrant could target (each with a
 rationale tied to the research), recommend the single sharpest angle for this
 idea, and list the key risks. Be specific and honest — do not invent demand or
 competitors the research does not support.
+
+Wording: use clear, everyday words instead of fancy, technical, or buzzword
+language. Keep ALL of the detail, specifics, names, and substance — do not
+shorten, summarize away, or drop anything. Only simplify the vocabulary, not the
+content.
 """
 
 
