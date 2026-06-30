@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { BriefView } from "@/components/BriefView";
 import { SiteHeader } from "@/components/SiteHeader";
+import { ExportButton } from "@/components/ExportButton";
 
 export default async function BriefPage({
   searchParams,
@@ -23,13 +24,7 @@ export default async function BriefPage({
         />
       </div>
 
-      <SiteHeader
-        action={
-          <button type="button" className="btn-accent rounded-lg px-5 py-2.5 text-sm font-medium">
-            Export
-          </button>
-        }
-      />
+      <SiteHeader action={<ExportButton />} />
 
       <main className="relative z-10 mx-auto w-full max-w-[90rem] flex-1 px-10 py-10">
         <Link

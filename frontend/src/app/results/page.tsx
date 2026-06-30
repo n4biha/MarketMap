@@ -1,5 +1,6 @@
 import { ResultsView } from "@/components/ResultsView";
 import { SiteHeader } from "@/components/SiteHeader";
+import { ExportButton } from "@/components/ExportButton";
 
 export default async function ResultsPage({
   searchParams,
@@ -21,13 +22,7 @@ export default async function ResultsPage({
         />
       </div>
 
-      <SiteHeader
-        action={
-          <button type="button" className="btn-accent rounded-lg px-5 py-2.5 text-sm font-medium">
-            Export
-          </button>
-        }
-      />
+      <SiteHeader action={<ExportButton />} />
 
       <ResultsView idea={idea} />
     </div>

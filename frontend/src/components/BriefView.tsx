@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Minus } from "lucide-react";
+import { Apple, Cat, Check, Globe, Minus, Play, Terminal } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { OpportunityBar } from "@/components/OpportunityBar";
 import { useBrief } from "@/lib/useBrief";
-import type { Level, MarketBrief, OpportunityScore } from "@/types/brief";
+import { buildDimensions } from "@/lib/dimensions";
+import type { Level, MarketBrief } from "@/types/brief";
 
 const CARD =
   "rounded-2xl border border-white/[0.07] bg-[#161721]/50 shadow-[0_8px_30px_-12px_rgba(0,0,0,0.7),inset_0_0_24px_-14px_rgba(109,91,255,0.35)]";
@@ -34,61 +36,6 @@ function titleCase(s: string): string {
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join(" ");
-}
-
-interface Dimension {
-  label: string;
-  value: Level;
-  // Resolved explanation: the backend's idea-specific reason when present,
-  // otherwise the generic per-level fallback below.
-  reasonText: string;
-}
-
-// Generic per-level fallback text, used only when the backend brief omits the
-// idea-specific *_reason field (e.g. the dev mock or an older saved brief).
-const FALLBACK_REASON: Record<string, Record<Level, string>> = {
-  "Market Crowding": {
-    low: "Market is wide open",
-    medium: "Market is moderately competitive",
-    high: "Market is highly crowded",
-  },
-  "User Pain": {
-    low: "Users feel only mild pain",
-    medium: "Users feel moderate pain",
-    high: "Users face strong, real pain points",
-  },
-  Differentiation: {
-    low: "Hard to stand out from incumbents",
-    medium: "Some room to differentiate",
-    high: "Clear differentiation is possible",
-  },
-  "Execution Complexity": {
-    low: "Low execution effort required",
-    medium: "Moderate execution effort required",
-    high: "High execution effort required",
-  },
-};
-
-function buildDimensions(score: OpportunityScore): Dimension[] {
-  const resolve = (label: string, value: Level, reason?: string): Dimension => ({
-    label,
-    value,
-    reasonText: reason?.trim() || FALLBACK_REASON[label][value],
-  });
-  return [
-    resolve("Market Crowding", score.market_crowding, score.market_crowding_reason),
-    resolve("User Pain", score.user_pain_intensity, score.user_pain_intensity_reason),
-    resolve(
-      "Differentiation",
-      score.differentiation_potential,
-      score.differentiation_potential_reason,
-    ),
-    resolve(
-      "Execution Complexity",
-      score.execution_complexity,
-      score.execution_complexity_reason,
-    ),
-  ];
 }
 
 const TABS = ["Overview", "Competitors", "Insights", "Sources"] as const;
@@ -284,41 +231,113 @@ function InsightsTab({ brief }: { brief: MarketBrief }) {
   );
 }
 
+interface SourceChannel {
+  label: string;
+  items: string[];
+  icon: LucideIcon;
+  color: string;
+}
+
+// Sample up to 3 excerpts spread across the array (first / middle / last) rather
+// than always the first, and truncate each to ~90 chars. Dedupes indices so short
+// arrays don't repeat an item.
+function sampleExcerpts(items: string[]): string[] {
+  if (items.length === 0) return [];
+  const last = items.length - 1;
+  const idx = Array.from(new Set([0, Math.floor(last / 2), last]));
+  return idx.map((i) => {
+    const s = items[i].trim();
+    return s.length > 90 ? `${s.slice(0, 90).trimEnd()}…` : s;
+  });
+}
+
 function SourcesTab({ brief }: { brief: MarketBrief }) {
   const { scout } = brief;
-  const channels = [
-    { label: "Web", items: scout.web_results },
-    { label: "App Store reviews", items: scout.app_reviews },
-    { label: "Google Play reviews", items: scout.play_reviews },
-    { label: "Hacker News", items: scout.hn_posts },
-    { label: "Product Hunt", items: scout.producthunt_posts },
+  const channels: SourceChannel[] = [
+    { label: "Web", items: scout.web_results, icon: Globe, color: "#6D5BFF" },
+    { label: "App Store reviews", items: scout.app_reviews, icon: Apple, color: "#4DA3FF" },
+    { label: "Google Play reviews", items: scout.play_reviews, icon: Play, color: "#34D399" },
+    { label: "Hacker News", items: scout.hn_posts, icon: Terminal, color: "#FF7A1A" },
+    { label: "Product Hunt", items: scout.producthunt_posts, icon: Cat, color: "#EC4899" },
   ];
-  const activeChannels = channels.filter((c) => c.items.length > 0).length;
+  const present = channels.filter((c) => c.items.length > 0);
+  const activeChannels = present.length;
+  const total = channels.reduce((sum, c) => sum + c.items.length, 0);
 
   return (
     <div className="flex flex-col gap-6">
+      {/* total summary */}
       <div className={`${CARD} flex items-center gap-4 p-7`}>
         <p className="font-serif text-4xl font-medium text-white">{scout.source_count}</p>
         <p className="text-[15px] text-muted">
           total sources collected across {activeChannels} channels
         </p>
       </div>
-      <div className="grid gap-5 sm:grid-cols-2">
-        {channels.map((ch) => (
-          <div key={ch.label} className={`${CARD} p-6`}>
-            <div className="flex items-center justify-between">
-              <p className="text-base font-semibold text-white">{ch.label}</p>
-              <span className="text-sm font-medium text-[#9B8CFF]">{ch.items.length}</span>
-            </div>
-            {ch.items[0] ? (
-              <p className="mt-3 line-clamp-2 text-sm leading-[1.5] text-[#9CA0B0]">
-                {ch.items[0]}
-              </p>
-            ) : (
-              <p className="mt-3 text-sm text-muted">No sources from this channel.</p>
-            )}
+
+      {/* proportion bar */}
+      {total > 0 && (
+        <div className={`${CARD} p-7`}>
+          <h3 className={SECTION_LABEL}>Source mix</h3>
+          <div className="flex h-3.5 w-full overflow-hidden rounded-full bg-white/[0.04]">
+            {present.map((c) => (
+              <div
+                key={c.label}
+                className="h-full"
+                style={{ width: `${(c.items.length / total) * 100}%`, background: c.color }}
+                title={`${c.label}: ${c.items.length}`}
+              />
+            ))}
           </div>
-        ))}
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
+            {present.map((c) => (
+              <div key={c.label} className="flex items-center gap-2 text-sm">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />
+                <span className="text-[#C7CAD6]">{c.label}</span>
+                <span className="font-medium text-muted">{c.items.length}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* source cards */}
+      <div className="grid gap-5 sm:grid-cols-2">
+        {channels.map((ch) => {
+          const excerpts = sampleExcerpts(ch.items);
+          const Icon = ch.icon;
+          return (
+            <div key={ch.label} className={`${CARD} p-6`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span
+                    className="flex h-10 w-10 items-center justify-center rounded-full"
+                    style={{ background: `${ch.color}2E` }}
+                  >
+                    <Icon className="h-5 w-5" style={{ color: ch.color }} aria-hidden />
+                  </span>
+                  <p className="text-base font-semibold text-white">{ch.label}</p>
+                </div>
+                <span className="text-sm font-medium text-[#9B8CFF]">{ch.items.length}</span>
+              </div>
+              {excerpts.length > 0 ? (
+                <>
+                  <ul className="mt-4 flex flex-col gap-2.5">
+                    {excerpts.map((e, i) => (
+                      <li key={i} className="text-sm leading-[1.5] text-[#9CA0B0]">
+                        {e}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 text-xs text-muted">
+                    Sample excerpts — not representative of all {ch.items.length} items
+                  </p>
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-muted">No sources from this channel.</p>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
