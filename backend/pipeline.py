@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterator
 
 from langgraph.graph import END, START, StateGraph
 
@@ -95,3 +96,43 @@ def run_pipeline(idea: str) -> MarketBrief:
     if brief is None:
         raise RuntimeError("Pipeline finished without producing a MarketBrief.")
     return brief
+
+
+def stream_pipeline(idea: str) -> Iterator[dict]:
+    """Run the pipeline, yielding a progress event as each node completes.
+
+    Uses LangGraph's ``stream_mode="updates"``, which emits ``{node_name:
+    update}`` after every node runs — so the UI can track *real* agent progress
+    instead of a fixed timer. Yields plain dicts (the SSE endpoint serializes
+    them):
+
+      ``{"type": "node", "node": <name>}``        after each node finishes
+      ``{"type": "done", "brief": <brief dict>}``  when the brief is ready
+      ``{"type": "error", "detail": <message>}``   on domain failure
+
+    The brief/error are captured from the node updates themselves (Formatter
+    writes ``brief``; the error node writes ``error``), so no second invoke is
+    needed.
+    """
+    initial_state: MarketMapState = {"idea": idea, "started_at": time.time()}
+    brief: MarketBrief | None = None
+    error: str | None = None
+
+    for chunk in graph.stream(initial_state, stream_mode="updates"):
+        for node, update in chunk.items():
+            yield {"type": "node", "node": node}
+            if isinstance(update, dict):
+                if update.get("brief") is not None:
+                    brief = update["brief"]
+                if update.get("error"):
+                    error = update["error"]
+
+    if error:
+        yield {"type": "error", "detail": error}
+    elif brief is not None:
+        yield {"type": "done", "brief": brief.model_dump(mode="json")}
+    else:
+        yield {
+            "type": "error",
+            "detail": "Pipeline finished without producing a MarketBrief.",
+        }

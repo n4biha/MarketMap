@@ -5,18 +5,25 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AGENTS, AgentPipeline } from "@/components/AgentPipeline";
 import { LiveStatusCard } from "@/components/LiveStatusCard";
-import { USE_MOCK, requestResearch } from "@/lib/api";
+import { USE_MOCK, streamResearch } from "@/lib/api";
 import { saveBrief } from "@/lib/briefStore";
 import { mockBrief } from "@/lib/mockBrief";
 
-const STEP_MS = 10000; // ~10s per agent over the ~50–60s run
+const STEP_MS = 10000; // mock-mode only: ~10s per agent
+// Pipeline node name → its position in AGENTS (Scout, Analyst, Strategist, Formatter).
+const NODE_INDEX: Record<string, number> = {
+  scout: 0,
+  analyst: 1,
+  strategist: 2,
+  formatter: 3,
+};
 
 /**
- * Research-progress screen. Fires the real backend call (POST /research) on
- * mount; the agent pipeline animation IS the loading state, stepping through the
- * agents (~10s each) and holding on Formatter until the brief returns, then it
- * saves the brief and navigates to /results. Set NEXT_PUBLIC_USE_MOCK="true" to
- * skip the backend and use the mock brief (timed) for dev.
+ * Research-progress screen. On a real run it streams the backend pipeline
+ * (GET /research/stream) and advances the agent pipeline as each agent actually
+ * completes, holding on Formatter until the brief returns, then saves the brief
+ * and navigates to /results. Set NEXT_PUBLIC_USE_MOCK="true" (or open with no
+ * idea) to skip the backend and animate the mock brief on a timer instead.
  */
 export function ResearchFlow({ idea }: { idea: string }) {
   const router = useRouter();
@@ -24,12 +31,13 @@ export function ResearchFlow({ idea }: { idea: string }) {
   const [phase, setPhase] = useState<"running" | "done" | "error">("running");
   const [error, setError] = useState("");
   const ideaQuery = idea ? `?idea=${encodeURIComponent(idea)}` : "";
+  const useMockFlow = USE_MOCK || !idea;
 
-  // Kick off the work (real API call, or mock on a timer).
+  // Kick off the work: real run streams agent-completion events; mock uses a timer.
   useEffect(() => {
     let cancelled = false;
 
-    if (USE_MOCK || !idea) {
+    if (useMockFlow) {
       const t = setTimeout(() => {
         if (cancelled) return;
         saveBrief(mockBrief);
@@ -41,30 +49,41 @@ export function ResearchFlow({ idea }: { idea: string }) {
       };
     }
 
-    requestResearch(idea)
-      .then((brief) => {
+    const stop = streamResearch(idea, {
+      onNode: (node) => {
+        if (cancelled) return;
+        const completed = NODE_INDEX[node];
+        // A node finishing means the next agent is now active (clamp to last).
+        if (completed !== undefined) {
+          setActiveIndex((i) =>
+            Math.max(i, Math.min(completed + 1, AGENTS.length - 1)),
+          );
+        }
+      },
+      onDone: (brief) => {
         if (cancelled) return;
         saveBrief(brief);
         setPhase("done");
-      })
-      .catch((e: unknown) => {
+      },
+      onError: (msg) => {
         if (cancelled) return;
-        setError(e instanceof Error ? e.message : "Something went wrong.");
+        setError(msg || "Something went wrong.");
         setPhase("error");
-      });
+      },
+    });
     return () => {
       cancelled = true;
+      stop();
     };
-  }, [idea]);
+  }, [idea, useMockFlow]);
 
-  // Step the pipeline glow one agent at a time, holding on the last (Formatter)
-  // until the brief is ready — no looping back to the start.
+  // Mock-mode only: step the glow on a timer. Real runs advance via stream events.
   useEffect(() => {
-    if (phase !== "running") return;
+    if (!useMockFlow || phase !== "running") return;
     if (activeIndex >= AGENTS.length - 1) return; // hold on Formatter
     const t = setTimeout(() => setActiveIndex((i) => i + 1), STEP_MS);
     return () => clearTimeout(t);
-  }, [activeIndex, phase]);
+  }, [activeIndex, phase, useMockFlow]);
 
   // When the brief is ready, navigate to results (all agents shown complete
   // below via `phase`, so no extra state update is needed here).

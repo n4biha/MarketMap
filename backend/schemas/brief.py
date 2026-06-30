@@ -101,6 +101,32 @@ class OpportunityScore(BaseModel):
         description="Overall opportunity attractiveness, weighing all four dimensions."
     )
 
+    # One-sentence, research-grounded justification for each dimension's score.
+    # Optional (defaulted) so older briefs and the frontend mock still validate.
+    market_crowding_reason: str = Field(
+        default="",
+        description="One concise sentence justifying the market_crowding score, "
+        "specific to this idea and grounded in the research (name incumbents / "
+        "saturation observed). Do not restate the level word.",
+    )
+    user_pain_intensity_reason: str = Field(
+        default="",
+        description="One concise sentence justifying the user_pain_intensity "
+        "score, grounded in the observed pain points. Do not restate the level word.",
+    )
+    differentiation_potential_reason: str = Field(
+        default="",
+        description="One concise sentence justifying the differentiation_potential "
+        "score, tied to competitor weaknesses / open whitespace. Do not restate "
+        "the level word.",
+    )
+    execution_complexity_reason: str = Field(
+        default="",
+        description="One concise sentence justifying the execution_complexity "
+        "score, specific to what building this idea entails. Do not restate the "
+        "level word.",
+    )
+
 
 # --------------------------------------------------------------------------- #
 # Agent payloads

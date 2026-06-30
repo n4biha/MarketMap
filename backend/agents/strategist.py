@@ -37,6 +37,12 @@ Mind the direction of each:
   - execution_complexity: high = hard or costly to build and ship
 Then give an overall opportunity rating weighing all four.
 
+For each of the four dimensions, also write ONE concise sentence justifying its
+score (the *_reason fields), specific to this idea and grounded in the research
+above — reference concrete incumbents, complaints, or whitespace where you can.
+Do not merely restate the level word ("it is high because it is high"); explain
+why.
+
 Also: identify concrete market gaps a new entrant could target (each with a
 rationale tied to the research), recommend the single sharpest angle for this
 idea, and list the key risks. Be specific and honest — do not invent demand or

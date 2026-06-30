@@ -29,3 +29,59 @@ export async function requestResearch(idea: string): Promise<MarketBrief> {
 
   return (await res.json()) as MarketBrief;
 }
+
+/** Discriminated union of the events the SSE endpoint emits. */
+type StreamEvent =
+  | { type: "node"; node: string }
+  | { type: "done"; brief: MarketBrief }
+  | { type: "error"; detail: string };
+
+/**
+ * Stream pipeline progress from GET /research/stream via EventSource.
+ * Calls onNode as each agent finishes, then onDone with the brief (or onError).
+ * Returns a cancel function that closes the connection.
+ */
+export function streamResearch(
+  idea: string,
+  handlers: {
+    onNode?: (node: string) => void;
+    onDone: (brief: MarketBrief) => void;
+    onError: (message: string) => void;
+  },
+): () => void {
+  const url = `${API_BASE}/research/stream?idea=${encodeURIComponent(idea)}`;
+  const es = new EventSource(url);
+  let settled = false; // guards against EventSource's onerror firing after done
+
+  es.onmessage = (e) => {
+    let evt: StreamEvent;
+    try {
+      evt = JSON.parse(e.data) as StreamEvent;
+    } catch {
+      return; // ignore unparseable frames
+    }
+    if (evt.type === "node") {
+      handlers.onNode?.(evt.node);
+    } else if (evt.type === "done") {
+      settled = true;
+      handlers.onDone(evt.brief);
+      es.close();
+    } else if (evt.type === "error") {
+      settled = true;
+      handlers.onError(evt.detail || "Research failed.");
+      es.close();
+    }
+  };
+
+  es.onerror = () => {
+    if (settled) return; // normal close after we already finished — ignore
+    settled = true;
+    handlers.onError("Lost connection to the research stream.");
+    es.close();
+  };
+
+  return () => {
+    settled = true;
+    es.close();
+  };
+}

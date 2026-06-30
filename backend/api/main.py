@@ -6,11 +6,15 @@ POST /research takes an app idea and returns the final MarketBrief as JSON.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from pipeline import run_pipeline
+from pipeline import run_pipeline, stream_pipeline
 from schemas.brief import MarketBrief
 
 app = FastAPI(
@@ -52,3 +56,34 @@ def research(request: ResearchRequest) -> MarketBrief:
     except RuntimeError as exc:
         # Domain failure (e.g. too few sources) -> 422 Unprocessable Entity.
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get("/research/stream")
+def research_stream(idea: str) -> StreamingResponse:
+    """Stream pipeline progress to the browser as Server-Sent Events.
+
+    Emits one `data:` frame per agent as it completes ({"type":"node",...}),
+    then a final frame with the full brief ({"type":"done",...}) or a failure
+    ({"type":"error",...}). Consumed by the frontend via `EventSource`, which
+    requires GET — so the idea comes in as a query param, not a JSON body.
+
+    Declared as a sync `def`; Starlette iterates the sync generator in its
+    threadpool, so the blocking LLM calls don't stall the event loop.
+    """
+    idea = idea.strip()
+    if not idea:
+        raise HTTPException(status_code=422, detail="idea must not be empty.")
+
+    def event_stream() -> Iterator[str]:
+        try:
+            for evt in stream_pipeline(idea):
+                yield f"data: {json.dumps(evt)}\n\n"
+        except Exception as exc:  # surface any unexpected failure to the client
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        # Disable proxy/browser buffering so frames flush as each agent finishes.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

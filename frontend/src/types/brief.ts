@@ -31,6 +31,12 @@ export interface OpportunityScore {
   differentiation_potential: Level;
   execution_complexity: Level;
   overall: Level;
+  // One-sentence, research-grounded justification per dimension. Optional: older
+  // briefs / the mock omit them, and BriefView falls back to static per-level text.
+  market_crowding_reason?: string;
+  user_pain_intensity_reason?: string;
+  differentiation_potential_reason?: string;
+  execution_complexity_reason?: string;
 }
 
 export interface ScoutData {

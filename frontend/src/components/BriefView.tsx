@@ -39,46 +39,55 @@ function titleCase(s: string): string {
 interface Dimension {
   label: string;
   value: Level;
-  reason: Record<Level, string>;
+  // Resolved explanation: the backend's idea-specific reason when present,
+  // otherwise the generic per-level fallback below.
+  reasonText: string;
 }
+
+// Generic per-level fallback text, used only when the backend brief omits the
+// idea-specific *_reason field (e.g. the dev mock or an older saved brief).
+const FALLBACK_REASON: Record<string, Record<Level, string>> = {
+  "Market Crowding": {
+    low: "Market is wide open",
+    medium: "Market is moderately competitive",
+    high: "Market is highly crowded",
+  },
+  "User Pain": {
+    low: "Users feel only mild pain",
+    medium: "Users feel moderate pain",
+    high: "Users face strong, real pain points",
+  },
+  Differentiation: {
+    low: "Hard to stand out from incumbents",
+    medium: "Some room to differentiate",
+    high: "Clear differentiation is possible",
+  },
+  "Execution Complexity": {
+    low: "Low execution effort required",
+    medium: "Moderate execution effort required",
+    high: "High execution effort required",
+  },
+};
+
 function buildDimensions(score: OpportunityScore): Dimension[] {
+  const resolve = (label: string, value: Level, reason?: string): Dimension => ({
+    label,
+    value,
+    reasonText: reason?.trim() || FALLBACK_REASON[label][value],
+  });
   return [
-    {
-      label: "Market Crowding",
-      value: score.market_crowding,
-      reason: {
-        low: "Market is wide open",
-        medium: "Market is moderately competitive",
-        high: "Market is highly crowded",
-      },
-    },
-    {
-      label: "User Pain",
-      value: score.user_pain_intensity,
-      reason: {
-        low: "Users feel only mild pain",
-        medium: "Users feel moderate pain",
-        high: "Users face strong, real pain points",
-      },
-    },
-    {
-      label: "Differentiation",
-      value: score.differentiation_potential,
-      reason: {
-        low: "Hard to stand out from incumbents",
-        medium: "Some room to differentiate",
-        high: "Clear differentiation is possible",
-      },
-    },
-    {
-      label: "Execution Complexity",
-      value: score.execution_complexity,
-      reason: {
-        low: "Low execution effort required",
-        medium: "Moderate execution effort required",
-        high: "High execution effort required",
-      },
-    },
+    resolve("Market Crowding", score.market_crowding, score.market_crowding_reason),
+    resolve("User Pain", score.user_pain_intensity, score.user_pain_intensity_reason),
+    resolve(
+      "Differentiation",
+      score.differentiation_potential,
+      score.differentiation_potential_reason,
+    ),
+    resolve(
+      "Execution Complexity",
+      score.execution_complexity,
+      score.execution_complexity_reason,
+    ),
   ];
 }
 
@@ -159,7 +168,7 @@ function OverviewTab({ brief }: { brief: MarketBrief }) {
             {dimensions.map((d) => (
               <li key={d.label} className="flex items-start gap-3 text-[15px] text-[#C7CAD6]">
                 <Check className="mt-0.5 h-5 w-5 shrink-0 text-[#9B8CFF]" aria-hidden />
-                {d.reason[d.value]}
+                {d.reasonText}
               </li>
             ))}
           </ul>
@@ -175,7 +184,7 @@ function OverviewTab({ brief }: { brief: MarketBrief }) {
                 <p className="text-base font-semibold text-white">{d.label}</p>
                 <LevelBadge level={d.value} />
               </div>
-              <p className="mt-3 text-[14px] leading-[1.5] text-[#9CA0B0]">{d.reason[d.value]}</p>
+              <p className="mt-3 text-[14px] leading-[1.5] text-[#9CA0B0]">{d.reasonText}</p>
             </div>
           ))}
         </div>
