@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Apple, Cat, Check, Globe, Minus, Play, Terminal } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { OpportunityBar } from "@/components/OpportunityBar";
@@ -54,7 +55,17 @@ function LevelBadge({ level }: { level: Level }) {
 
 export function BriefView({ idea }: { idea?: string }) {
   const brief = useBrief();
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("Overview");
+
+  // No brief in this session (direct landing / refresh in a new tab): send the
+  // user home rather than showing stale or placeholder data.
+  useEffect(() => {
+    if (brief === null) router.replace("/");
+  }, [brief, router]);
+
+  if (!brief) return null;
+
   const title = titleCase(idea && idea.trim() ? idea : brief.idea);
 
   return (

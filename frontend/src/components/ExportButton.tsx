@@ -5,6 +5,7 @@ import { exportBriefPdf } from "@/lib/exportBriefPdf";
 
 export function ExportButton() {
   const brief = useBrief();
+  if (!brief) return null;
   return (
     <button
       type="button"

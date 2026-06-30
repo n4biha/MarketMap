@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import { ArrowRight, Lightbulb, Sparkles, Target, TrendingUp } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { OpportunityBar } from "@/components/OpportunityBar";
 import { useBrief } from "@/lib/useBrief";
 
@@ -34,6 +36,16 @@ function deriveBody(rationale: string): string {
 
 export function ResultsView({ idea }: { idea?: string }) {
   const brief = useBrief();
+  const router = useRouter();
+
+  // No brief in this session (direct landing / refresh in a new tab): send the
+  // user home rather than showing stale or placeholder data.
+  useEffect(() => {
+    if (brief === null) router.replace("/");
+  }, [brief, router]);
+
+  if (!brief) return null;
+
   const ideaQuery = idea ? `?idea=${encodeURIComponent(idea)}` : "";
   const { strategist, analyst } = brief;
 
